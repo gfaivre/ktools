@@ -9,14 +9,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type fileInfo struct {
+	ID   int
+	Name string
+}
+
 // resolveCategoryID resolves a category name or ID to an ID
 func resolveCategoryID(client *api.Client, nameOrID string) (int, error) {
-	// Try to parse as ID first
 	if id, err := strconv.Atoi(nameOrID); err == nil {
 		return id, nil
 	}
 
-	// Otherwise search by name
 	categories, err := client.ListCategories()
 	if err != nil {
 		return 0, err
@@ -30,6 +33,50 @@ func resolveCategoryID(client *api.Client, nameOrID string) (int, error) {
 	}
 
 	return 0, fmt.Errorf("category '%s' not found", nameOrID)
+}
+
+// getCategoryName returns the category name for a given ID
+func getCategoryName(client *api.Client, categoryID int) string {
+	categories, _ := client.ListCategories()
+	for _, c := range categories {
+		if c.ID == categoryID {
+			return c.Name
+		}
+	}
+	return fmt.Sprintf("%d", categoryID)
+}
+
+// collectFiles collects file IDs and names, optionally recursively
+func collectFiles(client *api.Client, fileID int, recursive bool) ([]fileInfo, error) {
+	rootFile, err := client.GetFile(fileID)
+	if err != nil {
+		return nil, err
+	}
+
+	files := []fileInfo{{ID: rootFile.ID, Name: rootFile.Name}}
+
+	if recursive {
+		children, err := client.ListFilesRecursive(fileID)
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range children {
+			files = append(files, fileInfo{ID: f.ID, Name: f.Name})
+		}
+	}
+
+	return files, nil
+}
+
+// buildFileMap creates ID slice and ID->name map from file list
+func buildFileMap(files []fileInfo) ([]int, map[int]string) {
+	fileNames := make(map[int]string, len(files))
+	fileIDs := make([]int, 0, len(files))
+	for _, f := range files {
+		fileIDs = append(fileIDs, f.ID)
+		fileNames[f.ID] = f.Name
+	}
+	return fileIDs, fileNames
 }
 
 var tagCmd = &cobra.Command{
@@ -65,86 +112,45 @@ var tagAddCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client := api.NewClient(cfg)
 
-		categoryName := args[0]
-		categoryID, err := resolveCategoryID(client, categoryName)
+		categoryID, err := resolveCategoryID(client, args[0])
 		if err != nil {
 			return err
 		}
-
-		// Get category name if ID was passed
-		categories, _ := client.ListCategories()
-		for _, c := range categories {
-			if c.ID == categoryID {
-				categoryName = c.Name
-				break
-			}
-		}
+		categoryName := getCategoryName(client, categoryID)
 
 		var fileID int
 		if _, err := fmt.Sscanf(args[1], "%d", &fileID); err != nil {
 			return fmt.Errorf("invalid file_id: %s", args[1])
 		}
 
-		// Build file list with names
-		type fileInfo struct {
-			ID   int
-			Name string
+		files, err := collectFiles(client, fileID, recursive)
+		if err != nil {
+			return err
 		}
-		var files []fileInfo
 
 		if recursive {
-			// Get root folder first
-			rootFile, err := client.GetFile(fileID)
-			if err != nil {
-				return err
-			}
-			files = append(files, fileInfo{ID: rootFile.ID, Name: rootFile.Name})
-
-			// Then all children
-			children, err := client.ListFilesRecursive(fileID)
-			if err != nil {
-				return err
-			}
-			for _, f := range children {
-				files = append(files, fileInfo{ID: f.ID, Name: f.Name})
-			}
 			fmt.Printf("Applying [%s] to %d files...\n", categoryName, len(files))
-		} else {
-			rootFile, err := client.GetFile(fileID)
-			if err != nil {
-				return err
-			}
-			files = append(files, fileInfo{ID: rootFile.ID, Name: rootFile.Name})
 		}
 
-		// Create ID -> name map for display
-		fileNames := make(map[int]string)
-		fileIDs := make([]int, 0, len(files))
-		for _, f := range files {
-			fileIDs = append(fileIDs, f.ID)
-			fileNames[f.ID] = f.Name
-		}
+		fileIDs, fileNames := buildFileMap(files)
 
-		// Batch by 50 to avoid timeouts
-		batchSize := 50
+		const batchSize = 50
 		for i := 0; i < len(fileIDs); i += batchSize {
 			end := i + batchSize
 			if end > len(fileIDs) {
 				end = len(fileIDs)
 			}
-			batch := fileIDs[i:end]
 
-			results, err := client.AddCategoryToFiles(categoryID, batch)
+			results, err := client.AddCategoryToFiles(categoryID, fileIDs[i:end])
 			if err != nil {
 				return err
 			}
 
 			for _, r := range results {
-				name := fileNames[r.ID]
 				if r.Result {
-					fmt.Printf("  [OK]   %s\n", name)
+					fmt.Printf("  [OK]   %s\n", fileNames[r.ID])
 				} else {
-					fmt.Printf("  [SKIP] %s (already tagged)\n", name)
+					fmt.Printf("  [SKIP] %s (already tagged)\n", fileNames[r.ID])
 				}
 			}
 		}
@@ -162,84 +168,45 @@ var tagRmCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client := api.NewClient(cfg)
 
-		categoryName := args[0]
-		categoryID, err := resolveCategoryID(client, categoryName)
+		categoryID, err := resolveCategoryID(client, args[0])
 		if err != nil {
 			return err
 		}
-
-		// Get category name if ID was passed
-		categories, _ := client.ListCategories()
-		for _, c := range categories {
-			if c.ID == categoryID {
-				categoryName = c.Name
-				break
-			}
-		}
+		categoryName := getCategoryName(client, categoryID)
 
 		var fileID int
 		if _, err := fmt.Sscanf(args[1], "%d", &fileID); err != nil {
 			return fmt.Errorf("invalid file_id: %s", args[1])
 		}
 
-		// Build file list with names
-		type fileInfo struct {
-			ID   int
-			Name string
+		files, err := collectFiles(client, fileID, recursive)
+		if err != nil {
+			return err
 		}
-		var files []fileInfo
 
 		if recursive {
-			rootFile, err := client.GetFile(fileID)
-			if err != nil {
-				return err
-			}
-			files = append(files, fileInfo{ID: rootFile.ID, Name: rootFile.Name})
-
-			children, err := client.ListFilesRecursive(fileID)
-			if err != nil {
-				return err
-			}
-			for _, f := range children {
-				files = append(files, fileInfo{ID: f.ID, Name: f.Name})
-			}
 			fmt.Printf("Removing [%s] from %d files...\n", categoryName, len(files))
-		} else {
-			rootFile, err := client.GetFile(fileID)
-			if err != nil {
-				return err
-			}
-			files = append(files, fileInfo{ID: rootFile.ID, Name: rootFile.Name})
 		}
 
-		// Create ID -> name map for display
-		fileNames := make(map[int]string)
-		fileIDs := make([]int, 0, len(files))
-		for _, f := range files {
-			fileIDs = append(fileIDs, f.ID)
-			fileNames[f.ID] = f.Name
-		}
+		fileIDs, fileNames := buildFileMap(files)
 
-		// Batch by 50
-		batchSize := 50
+		const batchSize = 50
 		for i := 0; i < len(fileIDs); i += batchSize {
 			end := i + batchSize
 			if end > len(fileIDs) {
 				end = len(fileIDs)
 			}
-			batch := fileIDs[i:end]
 
-			results, err := client.RemoveCategoryFromFiles(categoryID, batch)
+			results, err := client.RemoveCategoryFromFiles(categoryID, fileIDs[i:end])
 			if err != nil {
 				return err
 			}
 
 			for _, r := range results {
-				name := fileNames[r.ID]
 				if r.Result {
-					fmt.Printf("  [OK]   %s\n", name)
+					fmt.Printf("  [OK]   %s\n", fileNames[r.ID])
 				} else {
-					fmt.Printf("  [SKIP] %s (not tagged)\n", name)
+					fmt.Printf("  [SKIP] %s (not tagged)\n", fileNames[r.ID])
 				}
 			}
 		}

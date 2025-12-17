@@ -32,7 +32,7 @@ func (c *Client) doRequest(method, path string, body io.Reader) ([]byte, error) 
 
 	req, err := http.NewRequest(method, url, body)
 	if err != nil {
-		return nil, fmt.Errorf("erreur création requête: %w", err)
+		return nil, fmt.Errorf("request creation error: %w", err)
 	}
 
 	req.Header.Set("Authorization", "Bearer "+c.token)
@@ -40,17 +40,17 @@ func (c *Client) doRequest(method, path string, body io.Reader) ([]byte, error) 
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("erreur requête HTTP: %w", err)
+		return nil, fmt.Errorf("HTTP request error: %w", err)
 	}
 	defer resp.Body.Close()
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("erreur lecture réponse: %w", err)
+		return nil, fmt.Errorf("response read error: %w", err)
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("erreur API (%d): %s", resp.StatusCode, string(data))
+		return nil, fmt.Errorf("API error (%d): %s", resp.StatusCode, string(data))
 	}
 
 	return data, nil
@@ -90,7 +90,7 @@ func (c *Client) GetFile(fileID int) (*File, error) {
 
 	var resp APIResponse[File]
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, fmt.Errorf("erreur parsing JSON: %w", err)
+		return nil, fmt.Errorf("JSON parse error: %w", err)
 	}
 
 	if resp.Result != "success" {
@@ -127,7 +127,7 @@ func (c *Client) ListFiles(fileID int) ([]File, error) {
 
 		var resp ListFilesResponse
 		if err := json.Unmarshal(data, &resp); err != nil {
-			return nil, fmt.Errorf("erreur parsing JSON: %w", err)
+			return nil, fmt.Errorf("JSON parse error: %w", err)
 		}
 
 		if resp.Result != "success" {
@@ -145,7 +145,7 @@ func (c *Client) ListFiles(fileID int) ([]File, error) {
 	return allFiles, nil
 }
 
-// ListFilesRecursive liste tous les fichiers d'un répertoire et ses sous-répertoires
+// ListFilesRecursive lists all files in a directory and its subdirectories
 func (c *Client) ListFilesRecursive(fileID int) ([]File, error) {
 	files, err := c.ListFiles(fileID)
 	if err != nil {
@@ -186,7 +186,7 @@ func (c *Client) ListCategories() ([]Category, error) {
 
 	var resp APIResponse[[]Category]
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, fmt.Errorf("erreur parsing JSON: %w", err)
+		return nil, fmt.Errorf("JSON parse error: %w", err)
 	}
 
 	if resp.Result != "success" {
@@ -210,7 +210,7 @@ func (c *Client) AddCategoryToFiles(categoryID int, fileIDs []int) ([]AddCategor
 
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
-		return nil, fmt.Errorf("erreur encoding JSON: %w", err)
+		return nil, fmt.Errorf("JSON encoding error: %w", err)
 	}
 
 	data, err := c.doRequest("POST", path, bytes.NewReader(jsonBody))
@@ -220,7 +220,7 @@ func (c *Client) AddCategoryToFiles(categoryID int, fileIDs []int) ([]AddCategor
 
 	var resp APIResponse[[]AddCategoryResult]
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, fmt.Errorf("erreur parsing JSON: %w", err)
+		return nil, fmt.Errorf("JSON parse error: %w", err)
 	}
 
 	if resp.Result != "success" {
@@ -230,6 +230,7 @@ func (c *Client) AddCategoryToFiles(categoryID int, fileIDs []int) ([]AddCategor
 	return resp.Data, nil
 }
 
+// RemoveCategoryFromFiles removes a category from multiple files
 func (c *Client) RemoveCategoryFromFiles(categoryID int, fileIDs []int) ([]AddCategoryResult, error) {
 	path := fmt.Sprintf("/2/drive/%d/files/categories/%d", c.driveID, categoryID)
 
@@ -239,7 +240,7 @@ func (c *Client) RemoveCategoryFromFiles(categoryID int, fileIDs []int) ([]AddCa
 
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
-		return nil, fmt.Errorf("erreur encoding JSON: %w", err)
+		return nil, fmt.Errorf("JSON encoding error: %w", err)
 	}
 
 	data, err := c.doRequest("DELETE", path, bytes.NewReader(jsonBody))
@@ -249,7 +250,7 @@ func (c *Client) RemoveCategoryFromFiles(categoryID int, fileIDs []int) ([]AddCa
 
 	var resp APIResponse[[]AddCategoryResult]
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, fmt.Errorf("erreur parsing JSON: %w", err)
+		return nil, fmt.Errorf("JSON parse error: %w", err)
 	}
 
 	if resp.Result != "success" {
