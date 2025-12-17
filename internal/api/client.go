@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -144,6 +145,40 @@ func (c *Client) ListFiles(fileID int) ([]File, error) {
 	}
 
 	return allFiles, nil
+}
+
+// FindFileByPath searches for a file/directory by path from the root
+func (c *Client) FindFileByPath(path string) (*File, error) {
+	path = strings.Trim(path, "/")
+	if path == "" {
+		return c.GetFile(1)
+	}
+
+	parts := strings.Split(path, "/")
+	currentID := 1
+
+	for _, part := range parts {
+		files, err := c.ListFiles(currentID)
+		if err != nil {
+			return nil, err
+		}
+
+		found := false
+		partLower := strings.ToLower(part)
+		for _, f := range files {
+			if strings.ToLower(f.Name) == partLower {
+				currentID = f.ID
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			return nil, fmt.Errorf("path not found: %s", part)
+		}
+	}
+
+	return c.GetFile(currentID)
 }
 
 // ProgressCallback is called during recursive operations to report progress
