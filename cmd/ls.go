@@ -42,6 +42,7 @@ var lsCmd = &cobra.Command{
 			return files[i].Name < files[j].Name
 		})
 
+		fmt.Printf("TYPE\tMODIFIED\t\tID\tNAME\n")
 		for _, f := range files {
 			printFile(&f)
 		}

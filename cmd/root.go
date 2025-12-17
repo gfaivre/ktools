@@ -29,8 +29,3 @@ func Execute() {
 		os.Exit(1)
 	}
 }
-
-func init() {
-	rootCmd.PersistentFlags().String("token", "", "API token (override config)")
-	rootCmd.PersistentFlags().Int("drive-id", 0, "kDrive ID (override config)")
-}

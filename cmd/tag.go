@@ -123,7 +123,7 @@ var tagListCmd = &cobra.Command{
 		}
 
 		for _, c := range categories {
-			fmt.Printf("%d\t%s\t%s\n", c.ID, c.Color, c.Name)
+			fmt.Printf("%d\t%s %s\t%s\n", c.ID, hexToANSI(c.Color), c.Color, c.Name)
 		}
 		return nil
 	},
@@ -255,6 +255,24 @@ func truncateName(name string, max int) string {
 		return name
 	}
 	return name[:max-3] + "..."
+}
+
+// hexToANSI converts a hex color code to ANSI truecolor escape sequence
+func hexToANSI(hex string) string {
+	hex = strings.TrimPrefix(hex, "#")
+	if len(hex) != 6 {
+		return ""
+	}
+
+	r, err1 := strconv.ParseInt(hex[0:2], 16, 64)
+	g, err2 := strconv.ParseInt(hex[2:4], 16, 64)
+	b, err3 := strconv.ParseInt(hex[4:6], 16, 64)
+
+	if err1 != nil || err2 != nil || err3 != nil {
+		return ""
+	}
+
+	return fmt.Sprintf("\033[48;2;%d;%d;%dm  \033[0m", r, g, b)
 }
 
 func init() {

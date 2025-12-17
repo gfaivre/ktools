@@ -200,7 +200,6 @@ func (c *Client) ListFilesRecursiveWithProgress(fileID int, progress ProgressCal
 	}
 	type result struct {
 		files   []File
-		dirs    []int
 		dirName string
 		err     error
 	}
@@ -220,13 +219,7 @@ func (c *Client) ListFilesRecursiveWithProgress(fileID int, progress ProgressCal
 					results <- result{err: err}
 					continue
 				}
-				var dirs []int
-				for _, f := range files {
-					if f.Type == "dir" {
-						dirs = append(dirs, f.ID)
-					}
-				}
-				results <- result{files: files, dirs: dirs, dirName: j.dirName}
+				results <- result{files: files, dirName: j.dirName}
 			}
 		}()
 	}
