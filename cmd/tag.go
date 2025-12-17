@@ -2,10 +2,12 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
 	"github.com/gfaivre/ktools/internal/api"
+	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 )
 
@@ -56,7 +58,13 @@ func collectFiles(client *api.Client, fileID int, recursive bool) ([]fileInfo, e
 	files := []fileInfo{{ID: rootFile.ID, Name: rootFile.Name}}
 
 	if recursive {
-		children, err := client.ListFilesRecursive(fileID)
+		// Show scanning progress
+		progress := func(dirName string, fileCount int) {
+			fmt.Fprintf(os.Stderr, "\r\033[KScanning: %s (%d files found)", truncateName(dirName, 40), fileCount)
+		}
+
+		children, err := client.ListFilesRecursiveWithProgress(fileID, progress)
+		fmt.Fprintln(os.Stderr) // Clear line
 		if err != nil {
 			return nil, err
 		}
@@ -77,6 +85,25 @@ func buildFileMap(files []fileInfo) ([]int, map[int]string) {
 		fileNames[f.ID] = f.Name
 	}
 	return fileIDs, fileNames
+}
+
+// newProgressBar creates a progress bar for file operations
+func newProgressBar(total int, description string) *progressbar.ProgressBar {
+	return progressbar.NewOptions(total,
+		progressbar.OptionSetWriter(os.Stderr),
+		progressbar.OptionEnableColorCodes(true),
+		progressbar.OptionShowCount(),
+		progressbar.OptionSetWidth(40),
+		progressbar.OptionSetDescription(description),
+		progressbar.OptionSetTheme(progressbar.Theme{
+			Saucer:        "[green]=[reset]",
+			SaucerHead:    "[green]>[reset]",
+			SaucerPadding: " ",
+			BarStart:      "[",
+			BarEnd:        "]",
+		}),
+		progressbar.OptionClearOnFinish(),
+	)
 }
 
 var tagCmd = &cobra.Command{
@@ -128,11 +155,10 @@ var tagAddCmd = &cobra.Command{
 			return err
 		}
 
-		if recursive {
-			fmt.Printf("Applying [%s] to %d files...\n", categoryName, len(files))
-		}
-
 		fileIDs, fileNames := buildFileMap(files)
+
+		bar := newProgressBar(len(files), fmt.Sprintf("Adding [%s]", categoryName))
+		var okCount, skipCount int
 
 		const batchSize = 50
 		for i := 0; i < len(fileIDs); i += batchSize {
@@ -143,19 +169,23 @@ var tagAddCmd = &cobra.Command{
 
 			results, err := client.AddCategoryToFiles(categoryID, fileIDs[i:end])
 			if err != nil {
+				fmt.Fprintln(os.Stderr)
 				return err
 			}
 
 			for _, r := range results {
+				name := fileNames[r.ID]
+				bar.Describe(truncateName(name, 30))
+				bar.Add(1)
 				if r.Result {
-					fmt.Printf("  [OK]   %s\n", fileNames[r.ID])
+					okCount++
 				} else {
-					fmt.Printf("  [SKIP] %s (already tagged)\n", fileNames[r.ID])
+					skipCount++
 				}
 			}
 		}
 
-		fmt.Println("Done.")
+		fmt.Fprintf(os.Stderr, "\nDone: %d tagged, %d skipped (already tagged)\n", okCount, skipCount)
 		return nil
 	},
 }
@@ -184,11 +214,10 @@ var tagRmCmd = &cobra.Command{
 			return err
 		}
 
-		if recursive {
-			fmt.Printf("Removing [%s] from %d files...\n", categoryName, len(files))
-		}
-
 		fileIDs, fileNames := buildFileMap(files)
+
+		bar := newProgressBar(len(files), fmt.Sprintf("Removing [%s]", categoryName))
+		var okCount, skipCount int
 
 		const batchSize = 50
 		for i := 0; i < len(fileIDs); i += batchSize {
@@ -199,21 +228,33 @@ var tagRmCmd = &cobra.Command{
 
 			results, err := client.RemoveCategoryFromFiles(categoryID, fileIDs[i:end])
 			if err != nil {
+				fmt.Fprintln(os.Stderr)
 				return err
 			}
 
 			for _, r := range results {
+				name := fileNames[r.ID]
+				bar.Describe(truncateName(name, 30))
+				bar.Add(1)
 				if r.Result {
-					fmt.Printf("  [OK]   %s\n", fileNames[r.ID])
+					okCount++
 				} else {
-					fmt.Printf("  [SKIP] %s (not tagged)\n", fileNames[r.ID])
+					skipCount++
 				}
 			}
 		}
 
-		fmt.Println("Done.")
+		fmt.Fprintf(os.Stderr, "\nDone: %d untagged, %d skipped (not tagged)\n", okCount, skipCount)
 		return nil
 	},
+}
+
+// truncateName truncates a filename to max length with ellipsis
+func truncateName(name string, max int) string {
+	if len(name) <= max {
+		return name
+	}
+	return name[:max-3] + "..."
 }
 
 func init() {

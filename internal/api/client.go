@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gfaivre/ktools/internal/config"
@@ -145,23 +146,100 @@ func (c *Client) ListFiles(fileID int) ([]File, error) {
 	return allFiles, nil
 }
 
+// ProgressCallback is called during recursive operations to report progress
+type ProgressCallback func(dirName string, fileCount int)
+
 // ListFilesRecursive lists all files in a directory and its subdirectories
+// Uses a worker pool for parallel directory traversal
 func (c *Client) ListFilesRecursive(fileID int) ([]File, error) {
-	files, err := c.ListFiles(fileID)
-	if err != nil {
-		return nil, err
+	return c.ListFilesRecursiveWithProgress(fileID, nil)
+}
+
+// ListFilesRecursiveWithProgress lists all files with progress callback
+func (c *Client) ListFilesRecursiveWithProgress(fileID int, progress ProgressCallback) ([]File, error) {
+	const numWorkers = 10
+
+	type job struct {
+		dirID   int
+		dirName string
+	}
+	type result struct {
+		files   []File
+		dirs    []int
+		dirName string
+		err     error
 	}
 
-	var allFiles []File
-	for _, f := range files {
-		allFiles = append(allFiles, f)
-		if f.Type == "dir" {
-			children, err := c.ListFilesRecursive(f.ID)
-			if err != nil {
-				return nil, err
+	jobs := make(chan job, 100)
+	results := make(chan result, 100)
+
+	// Start workers
+	var wg sync.WaitGroup
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobs {
+				files, err := c.ListFiles(j.dirID)
+				if err != nil {
+					results <- result{err: err}
+					continue
+				}
+				var dirs []int
+				for _, f := range files {
+					if f.Type == "dir" {
+						dirs = append(dirs, f.ID)
+					}
+				}
+				results <- result{files: files, dirs: dirs, dirName: j.dirName}
 			}
-			allFiles = append(allFiles, children...)
+		}()
+	}
+
+	// Close results when workers are done
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Track pending jobs
+	pending := 1
+	jobs <- job{dirID: fileID, dirName: "root"}
+
+	var allFiles []File
+	var firstErr error
+
+	for pending > 0 {
+		r := <-results
+		pending--
+
+		if r.err != nil {
+			if firstErr == nil {
+				firstErr = r.err
+			}
+			continue
 		}
+
+		allFiles = append(allFiles, r.files...)
+
+		// Report progress
+		if progress != nil {
+			progress(r.dirName, len(allFiles))
+		}
+
+		// Queue subdirectories
+		for _, f := range r.files {
+			if f.Type == "dir" {
+				pending++
+				jobs <- job{dirID: f.ID, dirName: f.Name}
+			}
+		}
+	}
+
+	close(jobs)
+
+	if firstErr != nil {
+		return nil, firstErr
 	}
 
 	return allFiles, nil

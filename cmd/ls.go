@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/gfaivre/ktools/internal/api"
@@ -27,6 +28,10 @@ var lsCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+
+		sort.Slice(files, func(i, j int) bool {
+			return files[i].Name < files[j].Name
+		})
 
 		for _, f := range files {
 			printFile(&f)
