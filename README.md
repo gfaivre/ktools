@@ -1,6 +1,6 @@
 # ktools
 
-CLI pour gérer les fichiers sur Infomaniak kDrive.
+CLI tool to manage files on Infomaniak kDrive.
 
 ## Installation
 
@@ -8,7 +8,7 @@ CLI pour gérer les fichiers sur Infomaniak kDrive.
 go install github.com/gfaivre/ktools@latest
 ```
 
-Ou depuis les sources :
+Or from source:
 
 ```bash
 git clone https://github.com/gfaivre/ktools.git
@@ -18,47 +18,47 @@ go build -o ktools .
 
 ## Configuration
 
-Créer le fichier `~/.config/ktools/config.yaml` :
+Create the file `~/.config/ktools/config.yaml`:
 
 ```yaml
-api_token: "VOTRE_TOKEN_API"
+api_token: "YOUR_API_TOKEN"
 drive_id: YOUR_DRIVE_ID
 ```
 
-- **api_token** : créer sur https://manager.infomaniak.com/v3/ng/accounts/token/list (scope `kdrive`)
-- **drive_id** : visible dans l'URL https://drive.infomaniak.com/app/drive/[ID]/files
+- **api_token**: create at https://manager.infomaniak.com/v3/ng/accounts/token/list (scope `kdrive`)
+- **drive_id**: visible in the URL https://drive.infomaniak.com/app/drive/[ID]/files
 
-Variables d'environnement alternatives :
+Alternative environment variables:
 - `KTOOLS_API_TOKEN`
 - `KTOOLS_DRIVE_ID`
 
-## Utilisation
+## Usage
 
-### Lister les fichiers
+### List files
 
 ```bash
-ktools ls           # Racine du drive
-ktools ls 3         # Contenu du dossier ID 3
+ktools ls           # Root of the drive
+ktools ls 3         # Contents of folder ID 3
 ```
 
-### Gérer les catégories
+### Manage categories
 
 ```bash
-# Lister les catégories disponibles
+# List available categories
 ktools tag list
 
-# Ajouter une catégorie (par nom ou ID)
-ktools tag add Confidentiel 6088
+# Add a category (by name or ID)
+ktools tag add Confidential 6088
 ktools tag add 14 6088
 
-# Ajouter récursivement à un dossier et tous ses enfants
-ktools tag add -r Interne 3
+# Add recursively to a folder and all its children
+ktools tag add -r Internal 3
 
-# Retirer une catégorie
-ktools tag rm Confidentiel 6088
-ktools tag rm -r Interne 3
+# Remove a category
+ktools tag rm Confidential 6088
+ktools tag rm -r Internal 3
 ```
 
-## Licence
+## License
 
 MIT

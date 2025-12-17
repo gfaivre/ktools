@@ -9,14 +9,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// resolveCategoryID résout un nom ou ID de catégorie en ID
+// resolveCategoryID resolves a category name or ID to an ID
 func resolveCategoryID(client *api.Client, nameOrID string) (int, error) {
-	// Essayer d'abord de parser comme un ID
+	// Try to parse as ID first
 	if id, err := strconv.Atoi(nameOrID); err == nil {
 		return id, nil
 	}
 
-	// Sinon chercher par nom
+	// Otherwise search by name
 	categories, err := client.ListCategories()
 	if err != nil {
 		return 0, err
@@ -29,17 +29,17 @@ func resolveCategoryID(client *api.Client, nameOrID string) (int, error) {
 		}
 	}
 
-	return 0, fmt.Errorf("catégorie '%s' non trouvée", nameOrID)
+	return 0, fmt.Errorf("category '%s' not found", nameOrID)
 }
 
 var tagCmd = &cobra.Command{
 	Use:   "tag",
-	Short: "Gestion des catégories/tags",
+	Short: "Manage categories/tags",
 }
 
 var tagListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "Liste les catégories disponibles",
+	Short: "List available categories",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client := api.NewClient(cfg)
 
@@ -59,8 +59,8 @@ var recursive bool
 
 var tagAddCmd = &cobra.Command{
 	Use:   "add <category> <file_id>",
-	Short: "Ajoute une catégorie à un fichier/répertoire",
-	Long:  "Ajoute une catégorie (nom ou ID) à un fichier/répertoire",
+	Short: "Add a category to a file/directory",
+	Long:  "Add a category (name or ID) to a file/directory",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client := api.NewClient(cfg)
@@ -71,7 +71,7 @@ var tagAddCmd = &cobra.Command{
 			return err
 		}
 
-		// Récupérer le nom de la catégorie si on a passé un ID
+		// Get category name if ID was passed
 		categories, _ := client.ListCategories()
 		for _, c := range categories {
 			if c.ID == categoryID {
@@ -82,10 +82,10 @@ var tagAddCmd = &cobra.Command{
 
 		var fileID int
 		if _, err := fmt.Sscanf(args[1], "%d", &fileID); err != nil {
-			return fmt.Errorf("file_id invalide: %s", args[1])
+			return fmt.Errorf("invalid file_id: %s", args[1])
 		}
 
-		// Construire la liste des fichiers avec leurs noms
+		// Build file list with names
 		type fileInfo struct {
 			ID   int
 			Name string
@@ -93,14 +93,14 @@ var tagAddCmd = &cobra.Command{
 		var files []fileInfo
 
 		if recursive {
-			// Récupérer d'abord le dossier racine
+			// Get root folder first
 			rootFile, err := client.GetFile(fileID)
 			if err != nil {
 				return err
 			}
 			files = append(files, fileInfo{ID: rootFile.ID, Name: rootFile.Name})
 
-			// Puis tous les enfants
+			// Then all children
 			children, err := client.ListFilesRecursive(fileID)
 			if err != nil {
 				return err
@@ -108,7 +108,7 @@ var tagAddCmd = &cobra.Command{
 			for _, f := range children {
 				files = append(files, fileInfo{ID: f.ID, Name: f.Name})
 			}
-			fmt.Printf("Application de [%s] à %d fichiers...\n", categoryName, len(files))
+			fmt.Printf("Applying [%s] to %d files...\n", categoryName, len(files))
 		} else {
 			rootFile, err := client.GetFile(fileID)
 			if err != nil {
@@ -117,7 +117,7 @@ var tagAddCmd = &cobra.Command{
 			files = append(files, fileInfo{ID: rootFile.ID, Name: rootFile.Name})
 		}
 
-		// Créer une map ID -> nom pour l'affichage
+		// Create ID -> name map for display
 		fileNames := make(map[int]string)
 		fileIDs := make([]int, 0, len(files))
 		for _, f := range files {
@@ -125,7 +125,7 @@ var tagAddCmd = &cobra.Command{
 			fileNames[f.ID] = f.Name
 		}
 
-		// Batch par 50 pour éviter les timeouts
+		// Batch by 50 to avoid timeouts
 		batchSize := 50
 		for i := 0; i < len(fileIDs); i += batchSize {
 			end := i + batchSize
@@ -144,20 +144,20 @@ var tagAddCmd = &cobra.Command{
 				if r.Result {
 					fmt.Printf("  [OK]   %s\n", name)
 				} else {
-					fmt.Printf("  [SKIP] %s (déjà taggé)\n", name)
+					fmt.Printf("  [SKIP] %s (already tagged)\n", name)
 				}
 			}
 		}
 
-		fmt.Println("Fait.")
+		fmt.Println("Done.")
 		return nil
 	},
 }
 
 var tagRmCmd = &cobra.Command{
 	Use:   "rm <category> <file_id>",
-	Short: "Retire une catégorie d'un fichier/répertoire",
-	Long:  "Retire une catégorie (nom ou ID) d'un fichier/répertoire",
+	Short: "Remove a category from a file/directory",
+	Long:  "Remove a category (name or ID) from a file/directory",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client := api.NewClient(cfg)
@@ -168,7 +168,7 @@ var tagRmCmd = &cobra.Command{
 			return err
 		}
 
-		// Récupérer le nom de la catégorie si on a passé un ID
+		// Get category name if ID was passed
 		categories, _ := client.ListCategories()
 		for _, c := range categories {
 			if c.ID == categoryID {
@@ -179,10 +179,10 @@ var tagRmCmd = &cobra.Command{
 
 		var fileID int
 		if _, err := fmt.Sscanf(args[1], "%d", &fileID); err != nil {
-			return fmt.Errorf("file_id invalide: %s", args[1])
+			return fmt.Errorf("invalid file_id: %s", args[1])
 		}
 
-		// Construire la liste des fichiers avec leurs noms
+		// Build file list with names
 		type fileInfo struct {
 			ID   int
 			Name string
@@ -203,7 +203,7 @@ var tagRmCmd = &cobra.Command{
 			for _, f := range children {
 				files = append(files, fileInfo{ID: f.ID, Name: f.Name})
 			}
-			fmt.Printf("Retrait de [%s] de %d fichiers...\n", categoryName, len(files))
+			fmt.Printf("Removing [%s] from %d files...\n", categoryName, len(files))
 		} else {
 			rootFile, err := client.GetFile(fileID)
 			if err != nil {
@@ -212,7 +212,7 @@ var tagRmCmd = &cobra.Command{
 			files = append(files, fileInfo{ID: rootFile.ID, Name: rootFile.Name})
 		}
 
-		// Créer une map ID -> nom pour l'affichage
+		// Create ID -> name map for display
 		fileNames := make(map[int]string)
 		fileIDs := make([]int, 0, len(files))
 		for _, f := range files {
@@ -220,7 +220,7 @@ var tagRmCmd = &cobra.Command{
 			fileNames[f.ID] = f.Name
 		}
 
-		// Batch par 50
+		// Batch by 50
 		batchSize := 50
 		for i := 0; i < len(fileIDs); i += batchSize {
 			end := i + batchSize
@@ -239,19 +239,19 @@ var tagRmCmd = &cobra.Command{
 				if r.Result {
 					fmt.Printf("  [OK]   %s\n", name)
 				} else {
-					fmt.Printf("  [SKIP] %s (pas taggé)\n", name)
+					fmt.Printf("  [SKIP] %s (not tagged)\n", name)
 				}
 			}
 		}
 
-		fmt.Println("Fait.")
+		fmt.Println("Done.")
 		return nil
 	},
 }
 
 func init() {
-	tagAddCmd.Flags().BoolVarP(&recursive, "recursive", "r", false, "Applique récursivement à tous les enfants")
-	tagRmCmd.Flags().BoolVarP(&recursive, "recursive", "r", false, "Retire récursivement de tous les enfants")
+	tagAddCmd.Flags().BoolVarP(&recursive, "recursive", "r", false, "Apply recursively to all children")
+	tagRmCmd.Flags().BoolVarP(&recursive, "recursive", "r", false, "Remove recursively from all children")
 
 	tagCmd.AddCommand(tagListCmd)
 	tagCmd.AddCommand(tagAddCmd)

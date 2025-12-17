@@ -12,7 +12,7 @@ var cfg *config.Config
 
 var rootCmd = &cobra.Command{
 	Use:   "ktools",
-	Short: "CLI pour gérer les fichiers sur Infomaniak kDrive",
+	Short: "CLI tool to manage files on Infomaniak kDrive",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		var err error
 		cfg, err = config.Load()
