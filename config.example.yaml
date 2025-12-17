@@ -1,13 +1,13 @@
-# Configuration ktools
-# Copier vers ~/.config/ktools/config.yaml
+# ktools configuration
+# Copy to ~/.config/ktools/config.yaml
 
-# Token API Infomaniak
-# Créer sur https://manager.infomaniak.com/v3/ng/accounts/token/list
-# Scope requis: kdrive
+# Infomaniak API token
+# Create at https://manager.infomaniak.com/v3/ng/accounts/token/list
+# Required scope: kdrive
 api_token: ""
 
-# ID du kDrive (visible dans l'URL: https://drive.infomaniak.com/app/drive/[ID]/files)
+# kDrive ID (visible in URL: https://drive.infomaniak.com/app/drive/[ID]/files)
 drive_id: 0
 
-# URL de base (optionnel)
+# Base URL (optional)
 # base_url: https://api.infomaniak.com
