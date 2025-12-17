@@ -37,8 +37,10 @@ Alternative environment variables:
 ### List files
 
 ```bash
-ktools ls           # Root of the drive
-ktools ls 3         # Contents of folder ID 3
+ktools ls                       # Root of the drive
+ktools ls 3                     # Contents of folder ID 3
+ktools ls "Common documents"    # Contents by path
+ktools ls "Common documents/RH" # Nested path
 ```
 
 ### Manage categories
