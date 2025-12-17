@@ -1,0 +1,14 @@
+# Config avec credentials
+config.yaml
+
+# Binary
+ktools
+ktools.exe
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
