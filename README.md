@@ -123,11 +123,11 @@ Example output:
 
 ```text
 FILES  SIZE      %      ID    NAME
-156    1.2 Go    45.2%  42    Invoices
-89     856.3 Mo  32.1%  51    Archives
-45     312.5 Mo  11.7%  63    Projects
+156    1.2 GB    45.2%  42    Invoices
+89     856.3 MB  32.1%  51    Archives
+45     312.5 MB  11.7%  63    Projects
 
-Total: 1245 files, 89 directories, 2.7 Go
+Total: 1245 files, 89 directories, 2.7 GB
 ```
 
 Flags:
@@ -155,30 +155,30 @@ ktools stale -a 3y
 # Show top 50 largest stale files
 ktools stale -n 50
 
-# Only files larger than 1 Mo
+# Only files larger than 1 MB
 ktools stale -m 1048576
 ```
 
 Example output:
 
 ```text
-Distribution par ancienneté :
+Age distribution:
 
-TRANCHE     FICHIERS  %      TAILLE    %
-< 6 mois    245       19.7%  1.2 Go    44.4%
-6m - 1 an   312       25.1%  856 Mo    31.7%
-1 - 2 ans   421       33.8%  412 Mo    15.3%
-2 - 3 ans   156       12.5%  156 Mo    5.8%
-3 - 5 ans   89        7.2%   62 Mo     2.3%
-> 5 ans     21        1.7%   12 Mo     0.4%
+RANGE        FILES  %      SIZE      %
+< 6 months   245    19.7%  1.2 GB    44.4%
+6m - 1 year  312    25.1%  856 MB    31.7%
+1 - 2 years  421    33.8%  412 MB    15.3%
+2 - 3 years  156    12.5%  156 MB    5.8%
+3 - 5 years  89     7.2%   62 MB     2.3%
+> 5 years    21     1.7%   12 MB     0.4%
 
-Fichiers non modifiés depuis 2y :
+Files not modified since 2y:
 
 AGE     SIZE      MODIFIED    ID     NAME
-3a 2m   45.2 Mo   2021-10-15  1234   old_report.pdf
-2a 8m   12.1 Mo   2022-02-20  5678   archive_2022.zip
+3y 2m   45.2 MB   2021-10-15  1234   old_report.pdf
+2y 8m   12.1 MB   2022-02-20  5678   archive_2022.zip
 
-Total : 266 fichiers, 230 Mo (sur 1244 fichiers, 2.7 Go)
+Total: 266 files, 230 MB (out of 1244 files, 2.7 GB)
 ```
 
 Flags:

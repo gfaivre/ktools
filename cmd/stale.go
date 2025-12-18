@@ -81,12 +81,12 @@ var staleCmd = &cobra.Command{
 
 		// Define age buckets
 		buckets := []ageBucket{
-			{label: "< 6 mois", minDays: 0, maxDays: 182},
-			{label: "6m - 1 an", minDays: 182, maxDays: 365},
-			{label: "1 - 2 ans", minDays: 365, maxDays: 730},
-			{label: "2 - 3 ans", minDays: 730, maxDays: 1095},
-			{label: "3 - 5 ans", minDays: 1095, maxDays: 1825},
-			{label: "> 5 ans", minDays: 1825, maxDays: -1},
+			{label: "< 6 months", minDays: 0, maxDays: 182},
+			{label: "6m - 1 year", minDays: 182, maxDays: 365},
+			{label: "1 - 2 years", minDays: 365, maxDays: 730},
+			{label: "2 - 3 years", minDays: 730, maxDays: 1095},
+			{label: "3 - 5 years", minDays: 1095, maxDays: 1825},
+			{label: "> 5 years", minDays: 1825, maxDays: -1},
 		}
 
 		// Collect stale files and build distribution
@@ -135,10 +135,10 @@ var staleCmd = &cobra.Command{
 		})
 
 		// Print age distribution
-		fmt.Println("Distribution par ancienneté :")
+		fmt.Println("Age distribution:")
 		fmt.Println()
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "TRANCHE\tFICHIERS\t%\tTAILLE\t%")
+		fmt.Fprintln(w, "RANGE\tFILES\t%\tSIZE\t%")
 		for _, b := range buckets {
 			pctCount := float64(b.count) / float64(totalFiles) * 100
 			pctSize := float64(b.size) / float64(totalSize) * 100
@@ -155,11 +155,11 @@ var staleCmd = &cobra.Command{
 
 		// Print stale files
 		fmt.Println()
-		fmt.Printf("Fichiers non modifiés depuis %s :\n", staleAge)
+		fmt.Printf("Files not modified since %s:\n", staleAge)
 		fmt.Println()
 
 		if len(staleFiles) == 0 {
-			fmt.Println("Aucun fichier trouvé")
+			fmt.Println("No files found")
 			return nil
 		}
 
@@ -187,10 +187,10 @@ var staleCmd = &cobra.Command{
 		w.Flush()
 
 		if len(staleFiles) > len(displayed) {
-			fmt.Printf("\n... et %d autres fichiers\n", len(staleFiles)-len(displayed))
+			fmt.Printf("\n... and %d more files\n", len(staleFiles)-len(displayed))
 		}
 
-		fmt.Printf("\nTotal : %d fichiers, %s (sur %d fichiers, %s)\n",
+		fmt.Printf("\nTotal: %d files, %s (out of %d files, %s)\n",
 			len(staleFiles), formatSize(staleSize), totalFiles, formatSize(totalSize))
 
 		return nil
@@ -230,14 +230,14 @@ func formatAgeDays(days int) string {
 
 	if years > 0 {
 		if months > 0 {
-			return fmt.Sprintf("%da %dm", years, months)
+			return fmt.Sprintf("%dy %dm", years, months)
 		}
-		return fmt.Sprintf("%da", years)
+		return fmt.Sprintf("%dy", years)
 	}
 	if months > 0 {
 		return fmt.Sprintf("%dm", months)
 	}
-	return fmt.Sprintf("%dj", days)
+	return fmt.Sprintf("%dd", days)
 }
 
 func init() {

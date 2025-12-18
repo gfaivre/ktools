@@ -17,23 +17,23 @@ func truncateName(name string, max int) string {
 	return name[:max-3] + "..."
 }
 
-// formatSize formats bytes as human-readable size (Ko, Mo, Go)
+// formatSize formats bytes as human-readable size (KB, MB, GB)
 func formatSize(bytes int64) string {
 	const (
-		Ko = 1024
-		Mo = Ko * 1024
-		Go = Mo * 1024
+		KB = 1024
+		MB = KB * 1024
+		GB = MB * 1024
 	)
 
 	switch {
-	case bytes >= Go:
-		return fmt.Sprintf("%.1f Go", float64(bytes)/Go)
-	case bytes >= Mo:
-		return fmt.Sprintf("%.1f Mo", float64(bytes)/Mo)
-	case bytes >= Ko:
-		return fmt.Sprintf("%.1f Ko", float64(bytes)/Ko)
+	case bytes >= GB:
+		return fmt.Sprintf("%.1f GB", float64(bytes)/GB)
+	case bytes >= MB:
+		return fmt.Sprintf("%.1f MB", float64(bytes)/MB)
+	case bytes >= KB:
+		return fmt.Sprintf("%.1f KB", float64(bytes)/KB)
 	default:
-		return fmt.Sprintf("%d o", bytes)
+		return fmt.Sprintf("%d B", bytes)
 	}
 }
 
