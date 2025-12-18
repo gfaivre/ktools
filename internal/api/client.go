@@ -8,10 +8,10 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gfaivre/ktools/internal/config"
+	"github.com/gfaivre/ktools/internal/logging"
 	"golang.org/x/time/rate"
 )
 
@@ -49,17 +49,22 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body io.Rea
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		// Rate limiting
+		logging.Debug("waiting for rate limiter", "method", method, "path", path)
 		if err := c.limiter.Wait(ctx); err != nil {
 			return nil, fmt.Errorf("rate limiter: %w", err)
 		}
+		logging.Debug("sending request", "method", method, "path", path, "attempt", attempt+1)
 
 		var reqBody io.Reader
 		if bodyBytes != nil {
 			reqBody = bytes.NewReader(bodyBytes)
 		}
 
-		req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
+		// Timeout per request (30s) - more reliable than http.Client timeout
+		reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		req, err := http.NewRequestWithContext(reqCtx, method, url, reqBody)
 		if err != nil {
+			cancel()
 			return nil, fmt.Errorf("request creation error: %w", err)
 		}
 
@@ -68,11 +73,17 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body io.Rea
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
+			cancel()
+			// Check if it's a timeout
+			if reqCtx.Err() == context.DeadlineExceeded {
+				return nil, fmt.Errorf("request timeout after 30s: %s %s", method, path)
+			}
 			return nil, fmt.Errorf("HTTP request error: %w", err)
 		}
 
 		data, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		cancel()
 		if err != nil {
 			return nil, fmt.Errorf("response read error: %w", err)
 		}
@@ -250,28 +261,27 @@ func (c *Client) ListFilesRecursiveWithProgress(ctx context.Context, fileID int,
 	jobs := make(chan job, 100)
 	results := make(chan result, 100)
 
-	// Start workers
-	var wg sync.WaitGroup
+	// Start workers - they will exit when context is cancelled
 	for i := 0; i < numWorkers; i++ {
-		wg.Add(1)
 		go func() {
-			defer wg.Done()
 			for j := range jobs {
-				files, err := c.ListFiles(ctx, j.dirID)
-				if err != nil {
-					results <- result{err: err}
-					continue
+				// Check context before making request
+				if ctx.Err() != nil {
+					return
 				}
-				results <- result{files: files, dirName: j.dirName}
+				files, err := c.ListFiles(ctx, j.dirID)
+				// Check context after request - don't send if cancelled
+				if ctx.Err() != nil {
+					return
+				}
+				select {
+				case results <- result{files: files, dirName: j.dirName, err: err}:
+				case <-ctx.Done():
+					return
+				}
 			}
 		}()
 	}
-
-	// Close results when workers are done
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
 
 	// Track pending jobs
 	pending := 1
@@ -283,7 +293,7 @@ func (c *Client) ListFilesRecursiveWithProgress(ctx context.Context, fileID int,
 	for pending > 0 {
 		select {
 		case <-ctx.Done():
-			close(jobs)
+			// Don't close channels - let goroutines exit naturally via ctx check
 			return nil, ctx.Err()
 		case r := <-results:
 			pending--
@@ -297,7 +307,6 @@ func (c *Client) ListFilesRecursiveWithProgress(ctx context.Context, fileID int,
 
 			allFiles = append(allFiles, r.files...)
 
-			// Report progress
 			if progress != nil {
 				progress(r.dirName, len(allFiles))
 			}
@@ -306,7 +315,11 @@ func (c *Client) ListFilesRecursiveWithProgress(ctx context.Context, fileID int,
 			for _, f := range r.files {
 				if f.Type == "dir" {
 					pending++
-					jobs <- job{dirID: f.ID, dirName: f.Name}
+					select {
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					case jobs <- job{dirID: f.ID, dirName: f.Name}:
+					}
 				}
 			}
 		}

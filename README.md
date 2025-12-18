@@ -34,6 +34,12 @@ Alternative environment variables:
 
 ## Usage
 
+### Global flags
+
+```bash
+ktools -v <command>   # Verbose mode (debug logs)
+```
+
 ### List files
 
 ```bash
@@ -75,16 +81,17 @@ ID      COLOR       NAME
 ```
 
 ```bash
-# Add a category (by name or ID)
+# Add a category (by name or ID) to a file/folder (by ID or path)
 ktools tag add Confidential 42
-ktools tag add 14 42
+ktools tag add 14 "Common documents/Invoices"
 
 # Add recursively to a folder and all its children
 ktools tag add -r Internal 3
+ktools tag add -r Internal "Common documents"
 
 # Remove a category
 ktools tag rm Confidential 42
-ktools tag rm -r Internal 3
+ktools tag rm -r Internal "Common documents"
 ```
 
 ## License

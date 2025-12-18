@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gfaivre/ktools/internal/api"
+	"github.com/gfaivre/ktools/internal/logging"
 	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 )
@@ -17,42 +18,56 @@ type fileInfo struct {
 	Name string
 }
 
-// resolveCategoryID resolves a category name or ID to an ID
-func resolveCategoryID(ctx context.Context, client *api.Client, nameOrID string) (int, error) {
+// resolveCategory resolves a category name or ID to both ID and name
+func resolveCategory(ctx context.Context, client *api.Client, nameOrID string) (int, string, error) {
+	// If it's a numeric ID, fetch categories to get the name
 	if id, err := strconv.Atoi(nameOrID); err == nil {
-		return id, nil
+		categories, err := client.ListCategories(ctx)
+		if err != nil {
+			return id, strconv.Itoa(id), nil // Fallback to ID as name
+		}
+		for _, c := range categories {
+			if c.ID == id {
+				return id, c.Name, nil
+			}
+		}
+		return id, strconv.Itoa(id), nil // ID not found, use ID as name
 	}
 
+	// It's a name, fetch categories to get the ID
 	categories, err := client.ListCategories(ctx)
+	if err != nil {
+		return 0, "", err
+	}
+
+	nameLower := strings.ToLower(nameOrID)
+	for _, c := range categories {
+		if strings.ToLower(c.Name) == nameLower {
+			return c.ID, c.Name, nil
+		}
+	}
+
+	return 0, "", fmt.Errorf("category '%s' not found", nameOrID)
+}
+
+// resolveFileID resolves a file ID or path to an ID
+func resolveFileID(ctx context.Context, client *api.Client, idOrPath string) (int, error) {
+	if id, err := strconv.Atoi(idOrPath); err == nil {
+		return id, nil
+	}
+	file, err := client.FindFileByPath(ctx, idOrPath)
 	if err != nil {
 		return 0, err
 	}
-
-	nameOrID = strings.ToLower(nameOrID)
-	for _, c := range categories {
-		if strings.ToLower(c.Name) == nameOrID {
-			return c.ID, nil
-		}
-	}
-
-	return 0, fmt.Errorf("category '%s' not found", nameOrID)
-}
-
-// getCategoryName returns the category name for a given ID
-func getCategoryName(ctx context.Context, client *api.Client, categoryID int) string {
-	categories, _ := client.ListCategories(ctx)
-	for _, c := range categories {
-		if c.ID == categoryID {
-			return c.Name
-		}
-	}
-	return fmt.Sprintf("%d", categoryID)
+	return file.ID, nil
 }
 
 // collectFiles collects file IDs and names, optionally recursively
 func collectFiles(ctx context.Context, client *api.Client, fileID int, recursive bool) ([]fileInfo, error) {
+	logging.Debug("collecting files", "fileID", fileID, "recursive", recursive)
 	rootFile, err := client.GetFile(ctx, fileID)
 	if err != nil {
+		logging.Debug("GetFile error", "err", err)
 		return nil, err
 	}
 
@@ -64,8 +79,10 @@ func collectFiles(ctx context.Context, client *api.Client, fileID int, recursive
 			fmt.Fprintf(os.Stderr, "\r\033[KScanning: %s (%d files found)", truncateName(dirName, 40), fileCount)
 		}
 
+		logging.Debug("starting recursive scan", "fileID", fileID)
 		children, err := client.ListFilesRecursiveWithProgress(ctx, fileID, progress)
 		fmt.Fprintln(os.Stderr) // Clear line
+		logging.Debug("recursive scan completed", "count", len(children), "err", err)
 		if err != nil {
 			return nil, err
 		}
@@ -134,23 +151,22 @@ var tagListCmd = &cobra.Command{
 var recursive bool
 
 var tagAddCmd = &cobra.Command{
-	Use:   "add <category> <file_id>",
+	Use:   "add <category> <file_or_path>",
 	Short: "Add a category to a file/directory",
-	Long:  "Add a category (name or ID) to a file/directory",
+	Long:  "Add a category (name or ID) to a file/directory (by ID or path)",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		client := api.NewClient(cfg)
 
-		categoryID, err := resolveCategoryID(ctx, client, args[0])
+		categoryID, categoryName, err := resolveCategory(ctx, client, args[0])
 		if err != nil {
 			return err
 		}
-		categoryName := getCategoryName(ctx, client, categoryID)
 
-		var fileID int
-		if _, err := fmt.Sscanf(args[1], "%d", &fileID); err != nil {
-			return fmt.Errorf("invalid file_id: %s", args[1])
+		fileID, err := resolveFileID(ctx, client, args[1])
+		if err != nil {
+			return err
 		}
 
 		files, err := collectFiles(ctx, client, fileID, recursive)
@@ -194,23 +210,22 @@ var tagAddCmd = &cobra.Command{
 }
 
 var tagRmCmd = &cobra.Command{
-	Use:   "rm <category> <file_id>",
+	Use:   "rm <category> <file_or_path>",
 	Short: "Remove a category from a file/directory",
-	Long:  "Remove a category (name or ID) from a file/directory",
+	Long:  "Remove a category (name or ID) from a file/directory (by ID or path)",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		client := api.NewClient(cfg)
 
-		categoryID, err := resolveCategoryID(ctx, client, args[0])
+		categoryID, categoryName, err := resolveCategory(ctx, client, args[0])
 		if err != nil {
 			return err
 		}
-		categoryName := getCategoryName(ctx, client, categoryID)
 
-		var fileID int
-		if _, err := fmt.Sscanf(args[1], "%d", &fileID); err != nil {
-			return fmt.Errorf("invalid file_id: %s", args[1])
+		fileID, err := resolveFileID(ctx, client, args[1])
+		if err != nil {
+			return err
 		}
 
 		files, err := collectFiles(ctx, client, fileID, recursive)
