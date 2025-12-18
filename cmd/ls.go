@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"sort"
-	"strconv"
 	"time"
 
 	"github.com/gfaivre/ktools/internal/api"
@@ -21,16 +20,10 @@ var lsCmd = &cobra.Command{
 
 		fileID := 1
 		if len(args) > 0 {
-			// Try to parse as ID first
-			if id, err := strconv.Atoi(args[0]); err == nil {
-				fileID = id
-			} else {
-				// Otherwise resolve as path
-				file, err := client.FindFileByPath(ctx, args[0])
-				if err != nil {
-					return err
-				}
-				fileID = file.ID
+			var err error
+			fileID, err = resolveFileID(ctx, client, args[0])
+			if err != nil {
+				return err
 			}
 		}
 

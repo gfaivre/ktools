@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strconv"
 	"text/tabwriter"
 
 	"github.com/gfaivre/ktools/internal/api"
@@ -38,23 +37,13 @@ var scanCmd = &cobra.Command{
 		client := api.NewClient(cfg)
 
 		// Resolve starting point
-		startID := 1
-		startName := "/"
+		arg := ""
 		if len(args) > 0 {
-			if id, err := strconv.Atoi(args[0]); err == nil {
-				startID = id
-				file, err := client.GetFile(ctx, startID)
-				if err == nil {
-					startName = file.Name
-				}
-			} else {
-				file, err := client.FindFileByPath(ctx, args[0])
-				if err != nil {
-					return err
-				}
-				startID = file.ID
-				startName = file.Name
-			}
+			arg = args[0]
+		}
+		startID, startName, err := resolveStartPath(ctx, client, arg)
+		if err != nil {
+			return err
 		}
 
 		logging.Debug("starting scan", "startID", startID, "startName", startName)
@@ -167,7 +156,10 @@ var scanCmd = &cobra.Command{
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(w, "FILES\tSIZE\t%\tID\tNAME")
 		for _, r := range filtered {
-			pct := float64(r.Size) / float64(totalSize) * 100
+			var pct float64
+			if totalSize > 0 {
+				pct = float64(r.Size) / float64(totalSize) * 100
+			}
 			fmt.Fprintf(w, "%d\t%s\t%.1f%%\t%d\t%s\n",
 				r.FileCount, formatSize(r.Size), pct, r.ID, r.Name)
 		}

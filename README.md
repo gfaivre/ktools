@@ -137,6 +137,56 @@ Flags:
 - `-s, --sort TYPE`: Sort by `size` (default) or `files`
 - `-a, --all`: Show all directories (no filtering)
 
+### Find stale files
+
+Identify old files for retention review:
+
+```bash
+# Find files not modified in 2 years (default)
+ktools stale
+
+# Scan a specific folder
+ktools stale "Common documents"
+
+# Custom age threshold (2 years, 6 months, 90 days)
+ktools stale -a 6m
+ktools stale -a 3y
+
+# Show top 50 largest stale files
+ktools stale -n 50
+
+# Only files larger than 1 Mo
+ktools stale -m 1048576
+```
+
+Example output:
+
+```text
+Distribution par ancienneté :
+
+TRANCHE     FICHIERS  %      TAILLE    %
+< 6 mois    245       19.7%  1.2 Go    44.4%
+6m - 1 an   312       25.1%  856 Mo    31.7%
+1 - 2 ans   421       33.8%  412 Mo    15.3%
+2 - 3 ans   156       12.5%  156 Mo    5.8%
+3 - 5 ans   89        7.2%   62 Mo     2.3%
+> 5 ans     21        1.7%   12 Mo     0.4%
+
+Fichiers non modifiés depuis 2y :
+
+AGE     SIZE      MODIFIED    ID     NAME
+3a 2m   45.2 Mo   2021-10-15  1234   old_report.pdf
+2a 8m   12.1 Mo   2022-02-20  5678   archive_2022.zip
+
+Total : 266 fichiers, 230 Mo (sur 1244 fichiers, 2.7 Go)
+```
+
+Flags:
+
+- `-a, --age`: Minimum age threshold (default: `2y`, formats: `2y`, `6m`, `90d`)
+- `-n, --top N`: Show top N files (default: 20, 0 = unlimited)
+- `-m, --min-size`: Minimum file size in bytes
+
 ## License
 
 MIT

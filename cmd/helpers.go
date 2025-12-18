@@ -66,3 +66,25 @@ func resolveFileID(ctx context.Context, client *api.Client, idOrPath string) (in
 	}
 	return file.ID, nil
 }
+
+// resolveStartPath resolves a path or ID argument to startID and startName
+// Returns (1, "/") if no argument provided
+func resolveStartPath(ctx context.Context, client *api.Client, arg string) (int, string, error) {
+	if arg == "" {
+		return 1, "/", nil
+	}
+
+	if id, err := strconv.Atoi(arg); err == nil {
+		file, err := client.GetFile(ctx, id)
+		if err != nil {
+			return id, strconv.Itoa(id), nil // Fallback to ID as name
+		}
+		return id, file.Name, nil
+	}
+
+	file, err := client.FindFileByPath(ctx, arg)
+	if err != nil {
+		return 0, "", err
+	}
+	return file.ID, file.Name, nil
+}
