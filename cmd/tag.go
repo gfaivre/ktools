@@ -50,18 +50,6 @@ func resolveCategory(ctx context.Context, client *api.Client, nameOrID string) (
 	return 0, "", fmt.Errorf("category '%s' not found", nameOrID)
 }
 
-// resolveFileID resolves a file ID or path to an ID
-func resolveFileID(ctx context.Context, client *api.Client, idOrPath string) (int, error) {
-	if id, err := strconv.Atoi(idOrPath); err == nil {
-		return id, nil
-	}
-	file, err := client.FindFileByPath(ctx, idOrPath)
-	if err != nil {
-		return 0, err
-	}
-	return file.ID, nil
-}
-
 // collectFiles collects file IDs and names, optionally recursively
 func collectFiles(ctx context.Context, client *api.Client, fileID int, recursive bool) ([]fileInfo, error) {
 	logging.Debug("collecting files", "fileID", fileID, "recursive", recursive)
@@ -268,31 +256,6 @@ var tagRmCmd = &cobra.Command{
 	},
 }
 
-// truncateName truncates a filename to max length with ellipsis
-func truncateName(name string, max int) string {
-	if len(name) <= max {
-		return name
-	}
-	return name[:max-3] + "..."
-}
-
-// hexToANSI converts a hex color code to ANSI truecolor escape sequence
-func hexToANSI(hex string) string {
-	hex = strings.TrimPrefix(hex, "#")
-	if len(hex) != 6 {
-		return ""
-	}
-
-	r, err1 := strconv.ParseInt(hex[0:2], 16, 64)
-	g, err2 := strconv.ParseInt(hex[2:4], 16, 64)
-	b, err3 := strconv.ParseInt(hex[4:6], 16, 64)
-
-	if err1 != nil || err2 != nil || err3 != nil {
-		return ""
-	}
-
-	return fmt.Sprintf("\033[48;2;%d;%d;%dm  \033[0m", r, g, b)
-}
 
 func init() {
 	tagAddCmd.Flags().BoolVarP(&recursive, "recursive", "r", false, "Apply recursively to all children")

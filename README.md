@@ -94,6 +94,49 @@ ktools tag rm Confidential 42
 ktools tag rm -r Internal "Common documents"
 ```
 
+### Scan directories
+
+Find directories with many files or high storage usage:
+
+```bash
+# Scan from root, show top 10 by size
+ktools scan
+
+# Scan a specific folder (by ID or path)
+ktools scan 3
+ktools scan "Common documents"
+
+# Show top 20 directories
+ktools scan -n 20
+
+# Show only directories with >= 50 files
+ktools scan -t 50
+
+# Sort by file count instead of size
+ktools scan -s files
+
+# Show all directories (no filtering)
+ktools scan -a
+```
+
+Example output:
+
+```text
+FILES  SIZE      %      ID    NAME
+156    1.2 Go    45.2%  42    Invoices
+89     856.3 Mo  32.1%  51    Archives
+45     312.5 Mo  11.7%  63    Projects
+
+Total: 1245 files, 89 directories, 2.7 Go
+```
+
+Flags:
+
+- `-n, --top N`: Show top N directories (default: 10, 0 = unlimited)
+- `-t, --threshold N`: Minimum file count threshold (default: 100)
+- `-s, --sort TYPE`: Sort by `size` (default) or `files`
+- `-a, --all`: Show all directories (no filtering)
+
 ## License
 
 MIT
