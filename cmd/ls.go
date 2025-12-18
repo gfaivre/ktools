@@ -16,6 +16,7 @@ var lsCmd = &cobra.Command{
 	Long:  "List files in a directory by ID or path (e.g. 'ls 3' or 'ls /Common documents/RH')",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
 		client := api.NewClient(cfg)
 
 		fileID := 1
@@ -25,7 +26,7 @@ var lsCmd = &cobra.Command{
 				fileID = id
 			} else {
 				// Otherwise resolve as path
-				file, err := client.FindFileByPath(args[0])
+				file, err := client.FindFileByPath(ctx, args[0])
 				if err != nil {
 					return err
 				}
@@ -33,7 +34,7 @@ var lsCmd = &cobra.Command{
 			}
 		}
 
-		files, err := client.ListFiles(fileID)
+		files, err := client.ListFiles(ctx, fileID)
 		if err != nil {
 			return err
 		}

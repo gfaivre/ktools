@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/gfaivre/ktools/internal/config"
 	"github.com/spf13/cobra"
@@ -24,7 +27,18 @@ var rootCmd = &cobra.Command{
 }
 
 func Execute() {
-	if err := rootCmd.Execute(); err != nil {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle interrupt signals
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		cancel()
+	}()
+
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

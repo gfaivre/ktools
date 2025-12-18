@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gfaivre/ktools/internal/config"
+	"golang.org/x/time/rate"
 )
 
 type Client struct {
@@ -18,6 +20,7 @@ type Client struct {
 	baseURL    string
 	token      string
 	driveID    int
+	limiter    *rate.Limiter
 }
 
 func NewClient(cfg *config.Config) *Client {
@@ -26,36 +29,76 @@ func NewClient(cfg *config.Config) *Client {
 		baseURL:    cfg.BaseURL,
 		token:      cfg.APIToken,
 		driveID:    cfg.DriveID,
+		limiter:    rate.NewLimiter(rate.Limit(10), 20), // 10 req/s, burst 20
 	}
 }
 
-func (c *Client) doRequest(method, path string, body io.Reader) ([]byte, error) {
+func (c *Client) doRequest(ctx context.Context, method, path string, body io.Reader) ([]byte, error) {
+	// Buffer le body pour pouvoir le relire en cas de retry
+	var bodyBytes []byte
+	if body != nil {
+		var err error
+		bodyBytes, err = io.ReadAll(body)
+		if err != nil {
+			return nil, fmt.Errorf("body read error: %w", err)
+		}
+	}
+
 	url := fmt.Sprintf("%s%s", c.baseURL, path)
+	const maxRetries = 3
 
-	req, err := http.NewRequest(method, url, body)
-	if err != nil {
-		return nil, fmt.Errorf("request creation error: %w", err)
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Rate limiting
+		if err := c.limiter.Wait(ctx); err != nil {
+			return nil, fmt.Errorf("rate limiter: %w", err)
+		}
+
+		var reqBody io.Reader
+		if bodyBytes != nil {
+			reqBody = bytes.NewReader(bodyBytes)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
+		if err != nil {
+			return nil, fmt.Errorf("request creation error: %w", err)
+		}
+
+		req.Header.Set("Authorization", "Bearer "+c.token)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("HTTP request error: %w", err)
+		}
+
+		data, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("response read error: %w", err)
+		}
+
+		// Retry sur 429 avec backoff exponentiel
+		if resp.StatusCode == 429 {
+			if attempt < maxRetries-1 {
+				delay := time.Duration(1<<attempt) * time.Second // 1s, 2s, 4s
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(delay):
+				}
+				continue
+			}
+			return nil, fmt.Errorf("API rate limited (429) after %d retries", maxRetries)
+		}
+
+		if resp.StatusCode >= 400 {
+			return nil, fmt.Errorf("API error (%d): %s", resp.StatusCode, string(data))
+		}
+
+		return data, nil
 	}
 
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("HTTP request error: %w", err)
-	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("response read error: %w", err)
-	}
-
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("API error (%d): %s", resp.StatusCode, string(data))
-	}
-
-	return data, nil
+	return nil, fmt.Errorf("max retries exceeded")
 }
 
 type APIResponse[T any] struct {
@@ -82,10 +125,10 @@ type File struct {
 	Color          string `json:"color,omitempty"`
 }
 
-func (c *Client) GetFile(fileID int) (*File, error) {
+func (c *Client) GetFile(ctx context.Context, fileID int) (*File, error) {
 	path := fmt.Sprintf("/3/drive/%d/files/%d", c.driveID, fileID)
 
-	data, err := c.doRequest("GET", path, nil)
+	data, err := c.doRequest(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +153,7 @@ type ListFilesResponse struct {
 	ResponseAt int64  `json:"response_at"`
 }
 
-func (c *Client) ListFiles(fileID int) ([]File, error) {
+func (c *Client) ListFiles(ctx context.Context, fileID int) ([]File, error) {
 	path := fmt.Sprintf("/3/drive/%d/files/%d/files", c.driveID, fileID)
 
 	var allFiles []File
@@ -122,7 +165,7 @@ func (c *Client) ListFiles(fileID int) ([]File, error) {
 			reqPath = fmt.Sprintf("%s?cursor=%s", path, cursor)
 		}
 
-		data, err := c.doRequest("GET", reqPath, nil)
+		data, err := c.doRequest(ctx, "GET", reqPath, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -148,17 +191,17 @@ func (c *Client) ListFiles(fileID int) ([]File, error) {
 }
 
 // FindFileByPath searches for a file/directory by path from the root
-func (c *Client) FindFileByPath(path string) (*File, error) {
-	path = strings.Trim(path, "/")
-	if path == "" {
-		return c.GetFile(1)
+func (c *Client) FindFileByPath(ctx context.Context, filePath string) (*File, error) {
+	filePath = strings.Trim(filePath, "/")
+	if filePath == "" {
+		return c.GetFile(ctx, 1)
 	}
 
-	parts := strings.Split(path, "/")
+	parts := strings.Split(filePath, "/")
 	currentID := 1
 
 	for _, part := range parts {
-		files, err := c.ListFiles(currentID)
+		files, err := c.ListFiles(ctx, currentID)
 		if err != nil {
 			return nil, err
 		}
@@ -178,7 +221,7 @@ func (c *Client) FindFileByPath(path string) (*File, error) {
 		}
 	}
 
-	return c.GetFile(currentID)
+	return c.GetFile(ctx, currentID)
 }
 
 // ProgressCallback is called during recursive operations to report progress
@@ -186,13 +229,13 @@ type ProgressCallback func(dirName string, fileCount int)
 
 // ListFilesRecursive lists all files in a directory and its subdirectories
 // Uses a worker pool for parallel directory traversal
-func (c *Client) ListFilesRecursive(fileID int) ([]File, error) {
-	return c.ListFilesRecursiveWithProgress(fileID, nil)
+func (c *Client) ListFilesRecursive(ctx context.Context, fileID int) ([]File, error) {
+	return c.ListFilesRecursiveWithProgress(ctx, fileID, nil)
 }
 
 // ListFilesRecursiveWithProgress lists all files with progress callback
-func (c *Client) ListFilesRecursiveWithProgress(fileID int, progress ProgressCallback) ([]File, error) {
-	const numWorkers = 10
+func (c *Client) ListFilesRecursiveWithProgress(ctx context.Context, fileID int, progress ProgressCallback) ([]File, error) {
+	const numWorkers = 5
 
 	type job struct {
 		dirID   int
@@ -214,7 +257,7 @@ func (c *Client) ListFilesRecursiveWithProgress(fileID int, progress ProgressCal
 		go func() {
 			defer wg.Done()
 			for j := range jobs {
-				files, err := c.ListFiles(j.dirID)
+				files, err := c.ListFiles(ctx, j.dirID)
 				if err != nil {
 					results <- result{err: err}
 					continue
@@ -238,28 +281,33 @@ func (c *Client) ListFilesRecursiveWithProgress(fileID int, progress ProgressCal
 	var firstErr error
 
 	for pending > 0 {
-		r := <-results
-		pending--
+		select {
+		case <-ctx.Done():
+			close(jobs)
+			return nil, ctx.Err()
+		case r := <-results:
+			pending--
 
-		if r.err != nil {
-			if firstErr == nil {
-				firstErr = r.err
+			if r.err != nil {
+				if firstErr == nil {
+					firstErr = r.err
+				}
+				continue
 			}
-			continue
-		}
 
-		allFiles = append(allFiles, r.files...)
+			allFiles = append(allFiles, r.files...)
 
-		// Report progress
-		if progress != nil {
-			progress(r.dirName, len(allFiles))
-		}
+			// Report progress
+			if progress != nil {
+				progress(r.dirName, len(allFiles))
+			}
 
-		// Queue subdirectories
-		for _, f := range r.files {
-			if f.Type == "dir" {
-				pending++
-				jobs <- job{dirID: f.ID, dirName: f.Name}
+			// Queue subdirectories
+			for _, f := range r.files {
+				if f.Type == "dir" {
+					pending++
+					jobs <- job{dirID: f.ID, dirName: f.Name}
+				}
 			}
 		}
 	}
@@ -282,10 +330,10 @@ type Category struct {
 	CreatedAt    int64  `json:"created_at"`
 }
 
-func (c *Client) ListCategories() ([]Category, error) {
+func (c *Client) ListCategories(ctx context.Context) ([]Category, error) {
 	path := fmt.Sprintf("/2/drive/%d/categories", c.driveID)
 
-	data, err := c.doRequest("GET", path, nil)
+	data, err := c.doRequest(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -302,12 +350,12 @@ func (c *Client) ListCategories() ([]Category, error) {
 	return resp.Data, nil
 }
 
-type AddCategoryResult struct {
+type CategoryResult struct {
 	ID     int  `json:"id"`
 	Result bool `json:"result"`
 }
 
-func (c *Client) AddCategoryToFiles(categoryID int, fileIDs []int) ([]AddCategoryResult, error) {
+func (c *Client) modifyCategory(ctx context.Context, method string, categoryID int, fileIDs []int) ([]CategoryResult, error) {
 	path := fmt.Sprintf("/2/drive/%d/files/categories/%d", c.driveID, categoryID)
 
 	body := struct {
@@ -319,12 +367,12 @@ func (c *Client) AddCategoryToFiles(categoryID int, fileIDs []int) ([]AddCategor
 		return nil, fmt.Errorf("JSON encoding error: %w", err)
 	}
 
-	data, err := c.doRequest("POST", path, bytes.NewReader(jsonBody))
+	data, err := c.doRequest(ctx, method, path, bytes.NewReader(jsonBody))
 	if err != nil {
 		return nil, err
 	}
 
-	var resp APIResponse[[]AddCategoryResult]
+	var resp APIResponse[[]CategoryResult]
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, fmt.Errorf("JSON parse error: %w", err)
 	}
@@ -336,32 +384,10 @@ func (c *Client) AddCategoryToFiles(categoryID int, fileIDs []int) ([]AddCategor
 	return resp.Data, nil
 }
 
-// RemoveCategoryFromFiles removes a category from multiple files
-func (c *Client) RemoveCategoryFromFiles(categoryID int, fileIDs []int) ([]AddCategoryResult, error) {
-	path := fmt.Sprintf("/2/drive/%d/files/categories/%d", c.driveID, categoryID)
+func (c *Client) AddCategoryToFiles(ctx context.Context, categoryID int, fileIDs []int) ([]CategoryResult, error) {
+	return c.modifyCategory(ctx, http.MethodPost, categoryID, fileIDs)
+}
 
-	body := struct {
-		FileIDs []int `json:"file_ids"`
-	}{FileIDs: fileIDs}
-
-	jsonBody, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("JSON encoding error: %w", err)
-	}
-
-	data, err := c.doRequest("DELETE", path, bytes.NewReader(jsonBody))
-	if err != nil {
-		return nil, err
-	}
-
-	var resp APIResponse[[]AddCategoryResult]
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, fmt.Errorf("JSON parse error: %w", err)
-	}
-
-	if resp.Result != "success" {
-		return nil, fmt.Errorf("API error: %s", resp.Result)
-	}
-
-	return resp.Data, nil
+func (c *Client) RemoveCategoryFromFiles(ctx context.Context, categoryID int, fileIDs []int) ([]CategoryResult, error) {
+	return c.modifyCategory(ctx, http.MethodDelete, categoryID, fileIDs)
 }
