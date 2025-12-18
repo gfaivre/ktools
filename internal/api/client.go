@@ -125,6 +125,7 @@ type File struct {
 	Visibility     string `json:"visibility"`
 	DriveID        int    `json:"drive_id"`
 	Depth          int    `json:"depth"`
+	Size           int64  `json:"size"`
 	CreatedBy      int    `json:"created_by"`
 	CreatedAt      int64  `json:"created_at"`
 	AddedAt        int64  `json:"added_at"`
