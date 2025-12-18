@@ -29,7 +29,7 @@ func NewClient(cfg *config.Config) *Client {
 		baseURL:    cfg.BaseURL,
 		token:      cfg.APIToken,
 		driveID:    cfg.DriveID,
-		limiter:    rate.NewLimiter(rate.Limit(10), 20), // 10 req/s, burst 20
+		limiter:    rate.NewLimiter(rate.Limit(2), 5), // 2 req/s, burst 5 (conservative to avoid API hangups)
 	}
 }
 
@@ -241,12 +241,16 @@ type ProgressCallback func(dirName string, fileCount int)
 // ListFilesRecursive lists all files in a directory and its subdirectories
 // Uses a worker pool for parallel directory traversal
 func (c *Client) ListFilesRecursive(ctx context.Context, fileID int) ([]File, error) {
-	return c.ListFilesRecursiveWithProgress(ctx, fileID, nil)
+	return c.ListFilesRecursiveWithProgress(ctx, fileID, "", nil)
 }
 
 // ListFilesRecursiveWithProgress lists all files with progress callback
-func (c *Client) ListFilesRecursiveWithProgress(ctx context.Context, fileID int, progress ProgressCallback) ([]File, error) {
-	const numWorkers = 5
+// rootName is used for progress display (pass empty string to use "root")
+func (c *Client) ListFilesRecursiveWithProgress(ctx context.Context, fileID int, rootName string, progress ProgressCallback) ([]File, error) {
+	if rootName == "" {
+		rootName = "root"
+	}
+	const numWorkers = 3 // Keep low to avoid API connection limits
 
 	type job struct {
 		dirID   int
@@ -285,7 +289,7 @@ func (c *Client) ListFilesRecursiveWithProgress(ctx context.Context, fileID int,
 
 	// Track pending jobs
 	pending := 1
-	jobs <- job{dirID: fileID, dirName: "root"}
+	jobs <- job{dirID: fileID, dirName: rootName}
 
 	var allFiles []File
 	var firstErr error

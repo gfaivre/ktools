@@ -80,7 +80,7 @@ func collectFiles(ctx context.Context, client *api.Client, fileID int, recursive
 		}
 
 		logging.Debug("starting recursive scan", "fileID", fileID)
-		children, err := client.ListFilesRecursiveWithProgress(ctx, fileID, progress)
+		children, err := client.ListFilesRecursiveWithProgress(ctx, fileID, rootFile.Name, progress)
 		fmt.Fprintln(os.Stderr) // Clear line
 		logging.Debug("recursive scan completed", "count", len(children), "err", err)
 		if err != nil {
