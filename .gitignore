@@ -5,6 +5,9 @@ config.yaml
 ktools
 ktools.exe
 
+# Downloaded reports (may contain PII / drive structure)
+reports/
+
 # IDE
 .idea/
 .vscode/

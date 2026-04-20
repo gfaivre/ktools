@@ -438,6 +438,212 @@ func (c *Client) ListActivities(ctx context.Context, opts ActivitiesOptions) ([]
 	return resp.Data, resp.Cursor, resp.HasMore, nil
 }
 
+type ReportOptions struct {
+	Actions []string
+	Depth   string
+	Files   []int
+	From    int64
+	Until   int64
+	UserID  int
+	Users   []int
+	Terms   string
+}
+
+type ReportUser struct {
+	ID          int    `json:"id"`
+	DisplayName string `json:"display_name"`
+	Email       string `json:"email"`
+}
+
+type Report struct {
+	ID          int        `json:"id"`
+	Status      string     `json:"status"`
+	Size        string     `json:"size"`
+	DownloadURL string     `json:"download_url"`
+	GeneratedBy ReportUser `json:"generated_by"`
+	CreatedAt   int64      `json:"created_at"`
+	UpdatedAt   int64      `json:"updated_at"`
+}
+
+type ReportResponse struct {
+	Result string `json:"result"`
+	Data   Report `json:"data"`
+}
+
+func (c *Client) CreateReport(ctx context.Context, opts ReportOptions) (int, error) {
+	q := url.Values{}
+	q.Set("lang", "en")
+	path := fmt.Sprintf("/2/drive/%d/activities/reports?%s", c.driveID, q.Encode())
+
+	body := map[string]any{}
+	if len(opts.Actions) > 0 {
+		body["actions"] = opts.Actions
+	}
+	if opts.Depth != "" {
+		body["depth"] = opts.Depth
+	}
+	if len(opts.Files) > 0 {
+		body["files"] = opts.Files
+	}
+	if opts.From > 0 {
+		body["from"] = opts.From
+	}
+	if opts.Until > 0 {
+		body["until"] = opts.Until
+	}
+	if opts.UserID > 0 {
+		body["user_id"] = opts.UserID
+	}
+	if len(opts.Users) > 0 {
+		body["users"] = opts.Users
+	}
+	if opts.Terms != "" {
+		body["terms"] = opts.Terms
+	}
+
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return 0, fmt.Errorf("JSON encoding error: %w", err)
+	}
+
+	data, err := c.doRequest(ctx, "POST", path, bytes.NewReader(jsonBody))
+	if err != nil {
+		return 0, err
+	}
+	var resp APIResponse[int]
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return 0, fmt.Errorf("JSON parse error: %w", err)
+	}
+
+	if resp.Result == "asynchronous" {
+		return 0, fmt.Errorf("report creation is asynchronous, ID not available in response")
+	}
+
+	if resp.Result != "success" {
+		return 0, fmt.Errorf("API error: %s", resp.Result)
+	}
+
+	return resp.Data, nil
+}
+
+func (c *Client) ReportExportURL(reportID int) string {
+	return fmt.Sprintf("https://kdrive.infomaniak.com/2/drive/%d/activities/reports/%d/export", c.driveID, reportID)
+}
+
+func (c *Client) DownloadReport(ctx context.Context, reportID int) ([]byte, error) {
+	exportURL := c.ReportExportURL(reportID)
+
+	reqCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, "GET", exportURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("request creation error: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+
+	downloadClient := &http.Client{}
+	resp, err := downloadClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("download error (%d): %s", resp.StatusCode, string(body))
+	}
+
+	return io.ReadAll(resp.Body)
+}
+
+func (c *Client) GetReport(ctx context.Context, reportID int) (*Report, error) {
+	path := fmt.Sprintf("/2/drive/%d/activities/reports/%d", c.driveID, reportID)
+
+	data, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp ReportResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("JSON parse error: %w", err)
+	}
+
+	if resp.Result == "asynchronous" {
+		return &Report{Status: "in_progress"}, nil
+	}
+
+	if resp.Result != "success" {
+		return nil, fmt.Errorf("API error: %s", resp.Result)
+	}
+
+	return &resp.Data, nil
+}
+
+type ListReportsResponse struct {
+	Result string   `json:"result"`
+	Data   []Report `json:"data"`
+	Total  int      `json:"total"`
+	Pages  int      `json:"pages"`
+	Page   int      `json:"page"`
+}
+
+func (c *Client) ListReports(ctx context.Context, page int) ([]Report, int, error) {
+	q := url.Values{}
+	if page > 1 {
+		q.Set("page", strconv.Itoa(page))
+	}
+	path := fmt.Sprintf("/2/drive/%d/activities/reports", c.driveID)
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+
+	data, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var resp ListReportsResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, 0, fmt.Errorf("JSON parse error: %w", err)
+	}
+
+	if resp.Result == "asynchronous" {
+		return nil, 0, nil
+	}
+
+	if resp.Result != "success" {
+		return nil, 0, fmt.Errorf("API error: %s", resp.Result)
+	}
+
+	return resp.Data, resp.Pages, nil
+}
+
+func (c *Client) DeleteReport(ctx context.Context, reportID int) error {
+	path := fmt.Sprintf("/2/drive/%d/activities/reports/%d", c.driveID, reportID)
+
+	data, err := c.doRequest(ctx, "DELETE", path, nil)
+	if err != nil {
+		return err
+	}
+
+	var resp APIResponse[bool]
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return fmt.Errorf("JSON parse error: %w", err)
+	}
+
+	if resp.Result == "asynchronous" {
+		return nil
+	}
+
+	if resp.Result != "success" {
+		return fmt.Errorf("API error: %s", resp.Result)
+	}
+
+	return nil
+}
+
 type FileWithCategories struct {
 	ID         int        `json:"id"`
 	Name       string     `json:"name"`

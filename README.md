@@ -250,6 +250,65 @@ Flags:
 - `--until`: filter until Unix timestamp
 - `--with-tags`: enrich each line with file tags (slow)
 
+### Activity reports
+
+Generate, list, download and delete asynchronous activity reports. Requires an `admin_token` in the config (same as `activities`).
+
+Reports are generated server-side as CSV files. The default time range is the last 3 months.
+
+```bash
+# Create a report (returns the report ID)
+ktools report create
+
+# Wait for completion and print status + download URL
+ktools report create --wait
+
+# Create, wait, download the CSV and auto-delete it server-side
+ktools report create --download
+
+# Custom output path
+ktools report create --download -o /tmp/audit.csv
+
+# Filter by action type, user or time range
+ktools report create --action file_trash --action file_delete
+ktools report create --user 123456
+ktools report create --from 1733493430 --until 1776704933
+
+# List existing reports
+ktools report list
+
+# Delete a specific report
+ktools report delete 42
+
+# Delete all reports
+ktools report delete-all
+```
+
+Example `report list` output:
+
+```text
+ID  STATUS  SIZE      CREATED           DOWNLOAD URL
+15  done    1.2 MB    2026-04-20 15:10  -
+14  done    856 KB    2026-04-19 09:22  -
+```
+
+Note: the `download_url` field from the Infomaniak API is always `null`. `ktools` uses the export URL `https://kdrive.infomaniak.com/2/drive/<drive_id>/activities/reports/<report_id>/export` to download. When using `--download`, the report is deleted from the server after a successful download to avoid accumulation.
+
+Downloaded files are written with mode `0600` (sensitive audit data). The default output directory is `reports/` (add it to your `.gitignore`).
+
+Create flags:
+
+- `--action`: filter by action type (repeatable)
+- `--depth`: `children`, `file`, `folder`, `unlimited`
+- `--file`: file IDs to include (repeatable, max 500)
+- `--from`, `--until`: Unix timestamps (default: last 3 months to now)
+- `--user-id`: filter by single user ID
+- `--user`: filter by user IDs (repeatable)
+- `--terms`: search terms (min 3 chars)
+- `-w, --wait`: wait for completion and print download URL
+- `-d, --download`: download the report after completion (implies `--wait`)
+- `-o, --output`: output file path (default: `reports/report_<id>.csv`)
+
 ## License
 
 MIT
