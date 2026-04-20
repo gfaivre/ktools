@@ -32,6 +32,19 @@ Alternative environment variables:
 - `KTOOLS_API_TOKEN`
 - `KTOOLS_DRIVE_ID`
 
+### Admin token (audit log and reports)
+
+The `activities` and `report` commands require a separate token belonging to a **drive administrator account**:
+
+```yaml
+api_token: "YOUR_API_TOKEN"
+admin_token: "YOUR_ADMIN_API_TOKEN"
+drive_id: YOUR_DRIVE_ID
+```
+
+- **admin_token**: create at https://manager.infomaniak.com/v3/ng/accounts/token/list (scope `kdrive`) using the admin account
+- Alternative environment variable: `KTOOLS_ADMIN_TOKEN`
+
 ## Usage
 
 ### Global flags
@@ -189,17 +202,7 @@ Flags:
 
 ### Audit log (activities)
 
-Display the drive activity log. Requires a separate admin token (drive administrator account).
-
-Required configuration in `~/.config/ktools/config.yaml`:
-
-```yaml
-api_token: "YOUR_API_TOKEN"
-admin_token: "YOUR_ADMIN_API_TOKEN"
-drive_id: YOUR_DRIVE_ID
-```
-
-Alternative environment variable: `KTOOLS_ADMIN_TOKEN`
+Display the drive activity log. Requires `admin_token` in config (see [Admin token](#admin-token-audit-log-and-reports)).
 
 ```bash
 # 50 most recent activities (default)
@@ -252,7 +255,7 @@ Flags:
 
 ### Activity reports
 
-Generate, list, download and delete asynchronous activity reports. Requires an `admin_token` in the config (same as `activities`).
+Generate, list, download and delete asynchronous activity reports. Requires `admin_token` in config (see [Admin token](#admin-token-audit-log-and-reports)).
 
 Reports are generated server-side as CSV files. The default time range is the last 3 months.
 
