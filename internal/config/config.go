@@ -9,9 +9,10 @@ import (
 )
 
 type Config struct {
-	APIToken string `mapstructure:"api_token"`
-	DriveID  int    `mapstructure:"drive_id"`
-	BaseURL  string `mapstructure:"base_url"`
+	APIToken   string `mapstructure:"api_token"`
+	AdminToken string `mapstructure:"admin_token"`
+	DriveID    int    `mapstructure:"drive_id"`
+	BaseURL    string `mapstructure:"base_url"`
 }
 
 func Load() (*Config, error) {

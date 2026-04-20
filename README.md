@@ -187,6 +187,69 @@ Flags:
 - `-n, --top N`: Show top N files (default: 20, 0 = unlimited)
 - `-m, --min-size`: Minimum file size in bytes
 
+### Audit log (activities)
+
+Display the drive activity log. Requires a separate admin token (drive administrator account).
+
+Required configuration in `~/.config/ktools/config.yaml`:
+
+```yaml
+api_token: "YOUR_API_TOKEN"
+admin_token: "YOUR_ADMIN_API_TOKEN"
+drive_id: YOUR_DRIVE_ID
+```
+
+Alternative environment variable: `KTOOLS_ADMIN_TOKEN`
+
+```bash
+# 50 most recent activities (default)
+ktools activities
+
+# 200 activities
+ktools activities -n 200
+
+# All activities (all pages)
+ktools activities --all
+
+# Chronological order (oldest first)
+ktools activities --asc
+
+# Filter by action type
+ktools activities --action file_trash
+ktools activities --action file_trash --action file_delete
+
+# Filter by user ID
+ktools activities --user 123456
+
+# Filter by time range (Unix timestamps)
+ktools activities --from 1733493430 --until 1776704933
+
+# Enrich with file tags (1 extra API call per file)
+ktools activities --with-tags
+```
+
+Example output:
+
+```text
+DATE                 ACTION             USER      PATH                               ID
+2026-04-20 18:57:10  file_trash         Jane Doe  /Private/old_report.pdf            142
+2026-04-19 11:23:45  file_rename        Jane Doe  /Common documents/budget.xlsx      141
+2026-04-18 09:02:21  file_share_create  Jane Doe  /Projects/specs.pdf                140
+
+Total: 50 activities
+```
+
+Flags:
+
+- `-n, --limit N`: number of activities per page (default: 50, max: 1000)
+- `-a, --all`: fetch all pages
+- `--asc`: sort ascending (oldest first)
+- `--action`: filter by action type (repeatable)
+- `--user`: filter by user ID (repeatable)
+- `--from`: filter from Unix timestamp
+- `--until`: filter until Unix timestamp
+- `--with-tags`: enrich each line with file tags (slow)
+
 ## License
 
 MIT

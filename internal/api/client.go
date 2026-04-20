@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,17 +26,31 @@ type Client struct {
 }
 
 func NewClient(cfg *config.Config) *Client {
+	return newClientWithToken(cfg, cfg.APIToken)
+}
+
+// NewAdminClient builds a client using the admin token (for audit/activity endpoints).
+// Falls back to the standard token if admin_token is not configured.
+func NewAdminClient(cfg *config.Config) *Client {
+	token := cfg.AdminToken
+	if token == "" {
+		token = cfg.APIToken
+	}
+	return newClientWithToken(cfg, token)
+}
+
+func newClientWithToken(cfg *config.Config, token string) *Client {
 	return &Client{
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		baseURL:    cfg.BaseURL,
-		token:      cfg.APIToken,
+		token:      token,
 		driveID:    cfg.DriveID,
 		limiter:    rate.NewLimiter(rate.Limit(2), 5), // 2 req/s, burst 5 (conservative to avoid API hangups)
 	}
 }
 
 func (c *Client) doRequest(ctx context.Context, method, path string, body io.Reader) ([]byte, error) {
-	// Buffer le body pour pouvoir le relire en cas de retry
+	// Buffer body to allow re-reads on retry
 	var bodyBytes []byte
 	if body != nil {
 		var err error
@@ -44,11 +60,10 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body io.Rea
 		}
 	}
 
-	url := fmt.Sprintf("%s%s", c.baseURL, path)
+	rawURL := c.baseURL + path
 	const maxRetries = 3
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		// Rate limiting
 		logging.Debug("waiting for rate limiter", "method", method, "path", path)
 		if err := c.limiter.Wait(ctx); err != nil {
 			return nil, fmt.Errorf("rate limiter: %w", err)
@@ -60,9 +75,9 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body io.Rea
 			reqBody = bytes.NewReader(bodyBytes)
 		}
 
-		// Timeout per request (30s) - more reliable than http.Client timeout
+		// Per-request timeout — more reliable than http.Client.Timeout for retries
 		reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		req, err := http.NewRequestWithContext(reqCtx, method, url, reqBody)
+		req, err := http.NewRequestWithContext(reqCtx, method, rawURL, reqBody)
 		if err != nil {
 			cancel()
 			return nil, fmt.Errorf("request creation error: %w", err)
@@ -74,7 +89,6 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body io.Rea
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
 			cancel()
-			// Check if it's a timeout
 			if reqCtx.Err() == context.DeadlineExceeded {
 				return nil, fmt.Errorf("request timeout after 30s: %s %s", method, path)
 			}
@@ -88,7 +102,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body io.Rea
 			return nil, fmt.Errorf("response read error: %w", err)
 		}
 
-		// Retry sur 429 avec backoff exponentiel
+		// Retry on 429 with exponential backoff
 		if resp.StatusCode == 429 {
 			if attempt < maxRetries-1 {
 				delay := time.Duration(1<<attempt) * time.Second // 1s, 2s, 4s
@@ -166,15 +180,19 @@ type ListFilesResponse struct {
 }
 
 func (c *Client) ListFiles(ctx context.Context, fileID int) ([]File, error) {
-	path := fmt.Sprintf("/3/drive/%d/files/%d/files", c.driveID, fileID)
+	base := fmt.Sprintf("/3/drive/%d/files/%d/files", c.driveID, fileID)
 
 	var allFiles []File
 	cursor := ""
 
 	for {
-		reqPath := path
+		q := url.Values{}
 		if cursor != "" {
-			reqPath = fmt.Sprintf("%s?cursor=%s", path, cursor)
+			q.Set("cursor", cursor)
+		}
+		reqPath := base
+		if len(q) > 0 {
+			reqPath = base + "?" + q.Encode()
 		}
 
 		data, err := c.doRequest(ctx, "GET", reqPath, nil)
@@ -240,13 +258,12 @@ func (c *Client) FindFileByPath(ctx context.Context, filePath string) (*File, er
 type ProgressCallback func(dirName string, fileCount int)
 
 // ListFilesRecursive lists all files in a directory and its subdirectories
-// Uses a worker pool for parallel directory traversal
 func (c *Client) ListFilesRecursive(ctx context.Context, fileID int) ([]File, error) {
 	return c.ListFilesRecursiveWithProgress(ctx, fileID, "", nil)
 }
 
-// ListFilesRecursiveWithProgress lists all files with progress callback
-// rootName is used for progress display (pass empty string to use "root")
+// ListFilesRecursiveWithProgress lists all files with a progress callback.
+// rootName is used for progress display (pass empty string to use "root").
 func (c *Client) ListFilesRecursiveWithProgress(ctx context.Context, fileID int, rootName string, progress ProgressCallback) ([]File, error) {
 	if rootName == "" {
 		rootName = "root"
@@ -266,29 +283,31 @@ func (c *Client) ListFilesRecursiveWithProgress(ctx context.Context, fileID int,
 	jobs := make(chan job, 100)
 	results := make(chan result, 100)
 
-	// Start workers - they will exit when context is cancelled
+	// Workers exit when jobs is closed or context is cancelled
 	for i := 0; i < numWorkers; i++ {
 		go func() {
-			for j := range jobs {
-				// Check context before making request
-				if ctx.Err() != nil {
-					return
-				}
-				files, err := c.ListFiles(ctx, j.dirID)
-				// Check context after request - don't send if cancelled
-				if ctx.Err() != nil {
-					return
-				}
+			for {
 				select {
-				case results <- result{files: files, dirName: j.dirName, err: err}:
 				case <-ctx.Done():
 					return
+				case j, ok := <-jobs:
+					if !ok {
+						return
+					}
+					files, err := c.ListFiles(ctx, j.dirID)
+					if ctx.Err() != nil {
+						return
+					}
+					select {
+					case results <- result{files: files, dirName: j.dirName, err: err}:
+					case <-ctx.Done():
+						return
+					}
 				}
 			}
 		}()
 	}
 
-	// Track pending jobs
 	pending := 1
 	jobs <- job{dirID: fileID, dirName: rootName}
 
@@ -298,7 +317,7 @@ func (c *Client) ListFilesRecursiveWithProgress(ctx context.Context, fileID int,
 	for pending > 0 {
 		select {
 		case <-ctx.Done():
-			// Don't close channels - let goroutines exit naturally via ctx check
+			close(jobs)
 			return nil, ctx.Err()
 		case r := <-results:
 			pending--
@@ -316,12 +335,12 @@ func (c *Client) ListFilesRecursiveWithProgress(ctx context.Context, fileID int,
 				progress(r.dirName, len(allFiles))
 			}
 
-			// Queue subdirectories
 			for _, f := range r.files {
 				if f.Type == "dir" {
 					pending++
 					select {
 					case <-ctx.Done():
+						close(jobs)
 						return nil, ctx.Err()
 					case jobs <- job{dirID: f.ID, dirName: f.Name}:
 					}
@@ -337,6 +356,114 @@ func (c *Client) ListFilesRecursiveWithProgress(ctx context.Context, fileID int,
 	}
 
 	return allFiles, nil
+}
+
+type ActivityUser struct {
+	ID          int    `json:"id"`
+	DisplayName string `json:"display_name"`
+	Email       string `json:"email"`
+}
+
+type Activity struct {
+	ID        int           `json:"id"`
+	CreatedAt int64         `json:"created_at"`
+	Action    string        `json:"action"`
+	FileID    int           `json:"file_id"`
+	UserID    int           `json:"user_id"`
+	NewPath   string        `json:"new_path"`
+	OldPath   string        `json:"old_path"`
+	User      *ActivityUser `json:"user"`
+}
+
+type ActivitiesResponse struct {
+	Result     string     `json:"result"`
+	Data       []Activity `json:"data"`
+	Cursor     string     `json:"cursor,omitempty"`
+	HasMore    bool       `json:"has_more"`
+	ResponseAt int64      `json:"response_at"`
+}
+
+type ActivitiesOptions struct {
+	Cursor  string
+	Limit   int
+	Order   string // asc or desc
+	Actions []string
+	From    int64
+	Until   int64
+	Users   []int
+}
+
+func (c *Client) ListActivities(ctx context.Context, opts ActivitiesOptions) ([]Activity, string, bool, error) {
+	q := url.Values{}
+	q.Set("lang", "fr")
+	q.Set("with", "user")
+	if opts.Cursor != "" {
+		q.Set("cursor", opts.Cursor)
+	}
+	if opts.Limit > 0 {
+		q.Set("limit", strconv.Itoa(opts.Limit))
+	}
+	if opts.Order != "" {
+		q.Set("order", opts.Order)
+	}
+	for _, a := range opts.Actions {
+		q.Add("actions[]", a)
+	}
+	if opts.From > 0 {
+		q.Set("from", strconv.FormatInt(opts.From, 10))
+	}
+	if opts.Until > 0 {
+		q.Set("until", strconv.FormatInt(opts.Until, 10))
+	}
+	for _, u := range opts.Users {
+		q.Add("users[]", strconv.Itoa(u))
+	}
+
+	path := fmt.Sprintf("/3/drive/%d/activities?%s", c.driveID, q.Encode())
+
+	data, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, "", false, err
+	}
+
+	var resp ActivitiesResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, "", false, fmt.Errorf("JSON parse error: %w", err)
+	}
+
+	if resp.Result != "success" {
+		return nil, "", false, fmt.Errorf("API error: %s", resp.Result)
+	}
+
+	return resp.Data, resp.Cursor, resp.HasMore, nil
+}
+
+type FileWithCategories struct {
+	ID         int        `json:"id"`
+	Name       string     `json:"name"`
+	Categories []Category `json:"categories"`
+}
+
+func (c *Client) GetFileCategories(ctx context.Context, fileID int) ([]Category, error) {
+	q := url.Values{}
+	q.Set("with", "file.categories")
+	path := fmt.Sprintf("/3/drive/%d/files/%d?%s", c.driveID, fileID, q.Encode())
+
+	data, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp APIResponse[FileWithCategories]
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("JSON parse error: %w", err)
+	}
+
+	if resp.Result != "success" {
+		return nil, fmt.Errorf("API error: %s", resp.Result)
+	}
+
+	return resp.Data.Categories, nil
 }
 
 type Category struct {
